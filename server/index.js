@@ -180,6 +180,10 @@ function handleDeviceMessage(ws, message) {
       console.log('File download received for device');
       break;
       
+    case 'ping':
+      ws.send(JSON.stringify({ type: 'pong' }));
+      break;
+      
     default:
       console.log('Unknown message type:', message.type);
   }
