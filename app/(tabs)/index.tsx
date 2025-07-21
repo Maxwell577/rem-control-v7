@@ -15,6 +15,21 @@ export default function ConnectionTab() {
     loadConnectionSettings();
   }, []);
 
+  useEffect(() => {
+    // Auto-reconnect logic
+    const handleAutoReconnect = async () => {
+      if (autoConnect && !isConnected && !isConnecting && serverIP && serverPort) {
+        console.log('Attempting auto-reconnect...');
+        await reconnect(serverIP, serverPort);
+      }
+    };
+
+    // Check for auto-reconnect every 10 seconds
+    const reconnectInterval = setInterval(handleAutoReconnect, 10000);
+
+    return () => clearInterval(reconnectInterval);
+  }, [autoConnect, isConnected, isConnecting, serverIP, serverPort, reconnect]);
+
   const loadConnectionSettings = async () => {
     try {
       const savedIP = await AsyncStorage.getItem('serverIP');

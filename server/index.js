@@ -181,11 +181,16 @@ function handleDeviceMessage(ws, message) {
       break;
       
     case 'ping':
-      ws.send(JSON.stringify({ type: 'pong' }));
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'pong' }));
+      }
       break;
       
     default:
-      console.log('Unknown message type:', message.type);
+      // Don't log ping messages as unknown
+      if (message.type !== 'ping') {
+        console.log('Unknown message type:', message.type);
+      }
   }
 }
 
