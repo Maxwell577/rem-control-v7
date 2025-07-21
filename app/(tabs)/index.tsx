@@ -223,7 +223,6 @@ export default function ConnectionTab() {
     </View>
   );
 }
-}
 
 const styles = StyleSheet.create({
   container: {
