@@ -807,48 +807,6 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
     }
   };
 
-  const handleSMSRequest = async () => {
-    try {
-      // Get actual SMS messages using expo-sms
-      const SMS = await import('expo-sms');
-      
-      // Note: Reading SMS requires native implementation
-      // For now, we'll send realistic mock data
-      const mockSMS = [
-        {
-          id: '1',
-          address: '+1234567890',
-          body: 'Hey, how are you doing?',
-          date: new Date(Date.now() - 3600000).toISOString(),
-          type: 'inbox',
-          read: true,
-        },
-        {
-          id: '2',
-          address: '+0987654321',
-          body: 'Meeting at 3 PM today',
-          date: new Date(Date.now() - 7200000).toISOString(),
-          type: 'inbox',
-          read: false,
-        },
-        {
-          id: '3',
-          address: '+1122334455',
-          body: 'Thanks for the help!',
-          date: new Date(Date.now() - 10800000).toISOString(),
-          type: 'sent',
-          read: true,
-        },
-      ];
-      
-      sendMessage({
-        type: 'sms_response',
-        data: mockSMS
-      });
-    } catch (error) {
-      console.error('Error getting SMS:', error);
-    }
-  };
 
   // Cleanup on unmount
   useEffect(() => {
