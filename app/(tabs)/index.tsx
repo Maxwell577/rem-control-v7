@@ -9,7 +9,6 @@ export default function ConnectionTab() {
   const [serverPort, setServerPort] = useState('3000');
   const [autoConnect, setAutoConnect] = useState(false);
   
-  const { isConnected, isConnecting, status, error, connect, disconnect } = useDeviceConnection();
   const { isConnected, isConnecting, status, error, connect, disconnect, reconnect } = useDeviceConnection();
 
   useEffect(() => {
