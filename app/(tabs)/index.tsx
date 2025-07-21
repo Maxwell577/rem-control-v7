@@ -2,14 +2,14 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Switch } fr
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import { useDeviceConnection } from '@/hooks/useDeviceConnection';
 
 export default function ConnectionTab() {
   const [serverIP, setServerIP] = useState('192.168.1.100');
   const [serverPort, setServerPort] = useState('3000');
-  const [isConnected, setIsConnected] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState('Disconnected');
   const [autoConnect, setAutoConnect] = useState(false);
+  
+  const { isConnected, isConnecting, status, error, connect, disconnect } = useDeviceConnection();
 
   useEffect(() => {
     loadConnectionSettings();
@@ -62,32 +62,24 @@ export default function ConnectionTab() {
   const connectToServer = async () => {
     if (!validateInputs()) return;
     
-    setIsConnecting(true);
-    setConnectionStatus('Connecting...');
-    
     try {
       // Save settings before connecting
       await saveConnectionSettings();
       
-      // Simulate connection attempt
-      // In a real app, this would establish WebSocket connection
-      setTimeout(() => {
-        setIsConnected(true);
-        setIsConnecting(false);
-        setConnectionStatus('Connected');
-        Alert.alert('Success', `Connected to ${serverIP}:${serverPort}`);
-      }, 2000);
+      const success = await connect(serverIP, serverPort);
       
+      if (success) {
+        Alert.alert('Success', `Connected to ${serverIP}:${serverPort}`);
+      } else {
+        Alert.alert('Connection Error', error || 'Failed to connect to server. Please check your settings and try again.');
+      }
     } catch (error) {
-      setIsConnecting(false);
-      setConnectionStatus('Connection Failed');
       Alert.alert('Connection Error', 'Failed to connect to server. Please check your settings and try again.');
     }
   };
 
   const disconnectFromServer = () => {
-    setIsConnected(false);
-    setConnectionStatus('Disconnected');
+    disconnect();
     Alert.alert('Disconnected', 'Connection to server has been closed');
   };
 
@@ -121,7 +113,7 @@ export default function ConnectionTab() {
             color={getStatusColor()} 
           />
           <Text style={[styles.statusText, { color: getStatusColor() }]}>
-            {connectionStatus}
+            {status}
           </Text>
         </View>
         {isConnected && (

