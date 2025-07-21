@@ -13,9 +13,7 @@ export default function ConnectionTab() {
 
   useEffect(() => {
     loadConnectionSettings();
-  }, []);
-
-  useEffect(() => {
+    
     // Auto-reconnect logic
     const handleAutoReconnect = async () => {
       if (autoConnect && !isConnected && !isConnecting && serverIP && serverPort) {
@@ -28,7 +26,7 @@ export default function ConnectionTab() {
     const reconnectInterval = setInterval(handleAutoReconnect, 10000);
 
     return () => clearInterval(reconnectInterval);
-  }, [autoConnect, isConnected, isConnecting, serverIP, serverPort, reconnect]);
+  }, [autoConnect, isConnected, isConnecting, serverIP, serverPort]);
 
   const loadConnectionSettings = async () => {
     try {
