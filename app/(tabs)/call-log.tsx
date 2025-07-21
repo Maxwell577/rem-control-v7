@@ -29,46 +29,11 @@ export default function CallLogTab() {
       data: {}
     });
 
-    // Simulate call log data
+    // The actual call log data will come from the server response
+    // Reset loading after timeout if no response
     setTimeout(() => {
-      const mockCallLog = [
-        {
-          id: '1',
-          phoneNumber: '+1234567890',
-          name: 'John Doe',
-          type: 'outgoing',
-          duration: 120,
-          timestamp: new Date(Date.now() - 3600000).toISOString(),
-        },
-        {
-          id: '2',
-          phoneNumber: '+0987654321',
-          name: 'Jane Smith',
-          type: 'incoming',
-          duration: 45,
-          timestamp: new Date(Date.now() - 7200000).toISOString(),
-        },
-        {
-          id: '3',
-          phoneNumber: '+1122334455',
-          name: 'Unknown',
-          type: 'missed',
-          duration: 0,
-          timestamp: new Date(Date.now() - 10800000).toISOString(),
-        },
-        {
-          id: '4',
-          phoneNumber: '+5566778899',
-          name: 'Mike Johnson',
-          type: 'incoming',
-          duration: 180,
-          timestamp: new Date(Date.now() - 14400000).toISOString(),
-        },
-      ];
-      
-      setCallLog(mockCallLog);
       setIsLoading(false);
-    }, 2000);
+    }, 10000);
   };
 
   const getCallTypeIcon = (type: string) => {

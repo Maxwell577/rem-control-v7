@@ -48,62 +48,11 @@ export default function SMSTab() {
       data: {}
     });
 
-    // Simulate SMS data loading
+    // The actual SMS data will come from the server response
+    // Reset loading after timeout if no response
     setTimeout(() => {
-      const mockSMS = [
-        {
-          id: '1',
-          address: '+1234567890',
-          body: 'Hey, how are you doing today? Hope everything is going well!',
-          date: new Date(Date.now() - 3600000).toISOString(),
-          type: 'inbox' as const,
-          read: true,
-        },
-        {
-          id: '2',
-          address: '+0987654321',
-          body: 'Meeting scheduled for 3 PM today. Don\'t forget to bring the documents.',
-          date: new Date(Date.now() - 7200000).toISOString(),
-          type: 'inbox' as const,
-          read: false,
-        },
-        {
-          id: '3',
-          address: '+1122334455',
-          body: 'Thanks for your help with the project! Really appreciate it.',
-          date: new Date(Date.now() - 10800000).toISOString(),
-          type: 'sent' as const,
-          read: true,
-        },
-        {
-          id: '4',
-          address: '+5566778899',
-          body: 'Can you call me when you get this? It\'s urgent.',
-          date: new Date(Date.now() - 14400000).toISOString(),
-          type: 'inbox' as const,
-          read: true,
-        },
-        {
-          id: '5',
-          address: '+1234567890',
-          body: 'Sure, I\'ll call you in 10 minutes.',
-          date: new Date(Date.now() - 18000000).toISOString(),
-          type: 'sent' as const,
-          read: true,
-        },
-        {
-          id: '6',
-          address: '+9988776655',
-          body: 'Your package has been delivered. Please check your doorstep.',
-          date: new Date(Date.now() - 21600000).toISOString(),
-          type: 'inbox' as const,
-          read: false,
-        },
-      ];
-      
-      setMessages(mockSMS);
       setIsLoading(false);
-    }, 2000);
+    }, 10000);
   };
 
   const shareSMS = () => {

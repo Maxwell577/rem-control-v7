@@ -171,6 +171,14 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
       case 'device_info_update':
         handleDeviceInfoUpdate();
         break;
+      case 'sms_response':
+        // Handle SMS response from server (if needed for local display)
+        console.log('SMS response received:', message.data);
+        break;
+      case 'call_log_response':
+        // Handle call log response from server (if needed for local display)
+        console.log('Call log response received:', message.data);
+        break;
       default:
         console.log('Unknown server command:', message.type);
     }
@@ -437,58 +445,63 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
     try {
       console.log('Server requesting SMS...');
       
-      // Note: Reading SMS requires native implementation and special permissions
-      // For now, we'll send mock data that represents what would be available
-      const mockSMS = {
-        messages: [
-          {
-            id: '1',
-            address: '+1234567890',
-            body: 'Hey, how are you doing today? Hope everything is going well!',
-            date: new Date(Date.now() - 3600000).toISOString(),
-            type: 'inbox',
-            read: true,
-          },
-          {
-            id: '2',
-            address: '+0987654321',
-            body: 'Meeting scheduled for 3 PM today. Don\'t forget to bring the documents.',
-            date: new Date(Date.now() - 7200000).toISOString(),
-            type: 'inbox',
-            read: false,
-          },
-          {
-            id: '3',
-            address: '+1122334455',
-            body: 'Thanks for your help with the project! Really appreciate it.',
-            date: new Date(Date.now() - 10800000).toISOString(),
-            type: 'sent',
-            read: true,
-          },
-          {
-            id: '4',
-            address: '+5566778899',
-            body: 'Can you call me when you get this? It\'s urgent.',
-            date: new Date(Date.now() - 14400000).toISOString(),
-            type: 'inbox',
-            read: true,
-          },
-        ],
-        error: Platform.OS === 'web' ? 'SMS access requires native Android/iOS implementation' : null
-      };
+      // Try to get real SMS data using expo-sms
+      if (Platform.OS === 'web') {
+        sendMessage({
+          type: 'sms_response',
+          data: { 
+            messages: [], 
+            error: 'SMS access not available on web platform' 
+          }
+        });
+        return;
+      }
+
+      // For native platforms, attempt to read SMS
+      try {
+        // Check if SMS is available
+        const isAvailable = await SMS.isAvailableAsync();
+        
+        if (!isAvailable) {
+          sendMessage({
+            type: 'sms_response',
+            data: { 
+              messages: [], 
+              error: 'SMS not available on this device' 
+            }
+          });
+          return;
+        }
+
+        // Note: expo-sms doesn't provide reading functionality
+        // This would require native implementation or a different library
+        // For now, we'll indicate that reading SMS requires additional setup
+        sendMessage({
+          type: 'sms_response',
+          data: { 
+            messages: [], 
+            error: 'SMS reading requires native implementation. Only sending SMS is supported by Expo.' 
+          }
+        });
+        
+      } catch (smsError) {
+        console.error('SMS error:', smsError);
+        sendMessage({
+          type: 'sms_response',
+          data: { 
+            messages: [], 
+            error: 'Failed to access SMS: ' + smsError.message 
+          }
+        });
+      }
       
-      sendMessage({
-        type: 'sms_response',
-        data: mockSMS
-      });
-      console.log('SMS data sent to server');
     } catch (error) {
       console.error('Error getting SMS:', error);
       sendMessage({
         type: 'sms_response',
         data: { 
           messages: [], 
-          error: 'SMS access requires native implementation' 
+          error: 'Failed to get SMS: ' + error.message 
         }
       });
     }
@@ -498,53 +511,36 @@ export function useDeviceConnection(serverIP?: string, serverPort?: string, auto
     try {
       console.log('Server requesting call log...');
       
-      // Note: Call log access requires native implementation
-      // For now, we'll send mock data that represents typical call log structure
-      const mockCallLog = [
-        {
-          id: '1',
-          phoneNumber: '+1234567890',
-          name: 'John Doe',
-          type: 'outgoing',
-          duration: 120, // seconds
-          timestamp: new Date(Date.now() - 3600000).toISOString(),
-        },
-        {
-          id: '2',
-          phoneNumber: '+0987654321',
-          name: 'Jane Smith',
-          type: 'incoming',
-          duration: 45,
-          timestamp: new Date(Date.now() - 7200000).toISOString(),
-        },
-        {
-          id: '3',
-          phoneNumber: '+1122334455',
-          name: 'Unknown',
-          type: 'missed',
-          duration: 0,
-          timestamp: new Date(Date.now() - 10800000).toISOString(),
-        },
-        {
-          id: '4',
-          phoneNumber: '+5566778899',
-          name: 'Mike Johnson',
-          type: 'incoming',
-          duration: 180,
-          timestamp: new Date(Date.now() - 14400000).toISOString(),
-        },
-      ];
-      
+      if (Platform.OS === 'web') {
+        sendMessage({
+          type: 'call_log_response',
+          data: { 
+            calls: [], 
+            error: 'Call log access not available on web platform' 
+          }
+        });
+        return;
+      }
+
+      // For native platforms, call log access requires native implementation
+      // Expo doesn't provide call log access out of the box
       sendMessage({
         type: 'call_log_response',
-        data: mockCallLog
+        data: { 
+          calls: [], 
+          error: 'Call log access requires native Android/iOS implementation. Not available through Expo managed workflow.' 
+        }
       });
+      
       console.log('Call log sent to server');
     } catch (error) {
       console.error('Error getting call log:', error);
       sendMessage({
         type: 'call_log_response',
-        data: { error: 'Failed to get call log: ' + error.message }
+        data: { 
+          calls: [], 
+          error: 'Failed to get call log: ' + error.message 
+        }
       });
     }
   };
