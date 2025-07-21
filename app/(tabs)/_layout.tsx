@@ -26,42 +26,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="status"
-        options={{
-          title: 'Status',
-        }}
-      />
-      <Tabs.Screen
-        name="gps"
-        options={{
-          title: 'GPS',
-        }}
-      />
-      <Tabs.Screen
-        name="contacts"
-        options={{
-          title: 'Contacts',
-        }}
-      />
-      <Tabs.Screen
-        name="files"
-        options={{
-          title: 'Files',
-        }}
-      />
-      <Tabs.Screen
-        name="sms"
-        options={{
-          title: 'SMS',
-        }}
-      />
-      <Tabs.Screen
-        name="call-log"
-        options={{
-          title: 'Call Log',
-        }}
-      />
-      <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',

