@@ -10,6 +10,7 @@ export default function ConnectionTab() {
   const [autoConnect, setAutoConnect] = useState(false);
   
   const { isConnected, isConnecting, status, error, connect, disconnect } = useDeviceConnection();
+  const { isConnected, isConnecting, status, error, connect, disconnect, reconnect } = useDeviceConnection();
 
   useEffect(() => {
     loadConnectionSettings();
@@ -221,6 +222,7 @@ export default function ConnectionTab() {
       </View>
     </View>
   );
+}
 }
 
 const styles = StyleSheet.create({
